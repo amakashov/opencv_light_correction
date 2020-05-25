@@ -2,71 +2,65 @@
 #include "opencv2/highgui.hpp"
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/imgproc.hpp"
+#include "lightcorrector.h"
 
 using namespace std;
 using namespace cv;
 
 void doSSR(cv::Mat& img);
 
-int main()
+const String keys =
+        "{@input | cameron.mp4 | input video}"
+        "{method | ssr | correction method}"
+        "{D | 10 | size for HPF}"
+        "{size | 21 | size for retinex}"
+        ;
+
+int main(int argc, char* argv[])
 {
+    CommandLineParser parser( argc, argv, keys );
+
     Mat src, dst;
-//    String imageName( "Lenna.png" ); // by default
-    String imageName( "Picture1.png" ); // by default
-    src = imread(imageName, IMREAD_COLOR);
-    if (src.empty())
+    string filename= parser.get<String>("@input");
+
+    VideoCapture cap(filename);
+    if (!cap.isOpened())
+    {
+        cout << "Cant open file "<< filename << endl;
         return -1;
+    }
+    cap >> src;
+    char key = 0;
 
-    imshow("Source", src);
-    cvtColor(src,src,CV_BGR2HSV);
+    Ptr<BaseLightCorrector>corrector;
 
-    Mat channels[3];
-    split(src, channels);
-//    for (auto& channel : channels)
-//        doSSR(channel);
-    equalizeHist(channels[1],channels[1]);
-    doSSR(channels[2]);
-    cv::merge(channels,3,dst);
-    cvtColor(dst,dst,CV_HSV2BGR);
+    string method = parser.get<String>("method");
+    int retSize = parser.get<int>("size");
+    int hpfD = parser.get<int>("D");
 
-//    cvtColor(src, dst, CV_BGR2GRAY);
-//    doSSR(dst);
-    imshow("Result", dst);
 
-    waitKey(0);
+    if (method == "ssr")
+        corrector = new SSRCorrector(retSize);
+    else if (method == "msr")
+        corrector = new MSRCorrector(retSize);
+    else if (method == "hpf")
+        corrector = new HPFCorrector(src.size(), hpfD, 4, 210, 100);
+    else
+        throw(runtime_error("Unknown method "+method));
 
-//    cout << "Hello World!" << endl;
+    while (!src.empty() && key != 27)
+    {
+        imshow("Original", src);
+
+        dst = corrector->apply(src);
+
+        imshow("After", dst);
+
+        key = waitKey(40);
+        cap >> src;
+    }
     return 0;
 }
 
-void replaceZeroes(Mat& img)
-{
-    Mat mask = img > 0;
-    double minc[1], maxc[1];
-    minMaxLoc(img, minc, maxc,0,0,mask);
-    img.setTo(minc[0],img==0);
-}
 
-void doSSR(Mat& img)
-{
-//    CV_ASSERT(img.type()==CV_8UC1);
-    Mat blurred, logI, logB, logIxB, logR;
-    GaussianBlur(img, blurred,Size(5,5), 0);
-    replaceZeroes(img);
-    replaceZeroes(blurred);
-
-    double minc[1], maxc[1];
-
-    img.convertTo(img, CV_64F);
-    blurred.convertTo(blurred,CV_64F);
-    cv::log(img/255, logI);
-    cv::log(blurred/255, logB);
-    cv::multiply(logI, logB, logIxB);
-    cv::subtract(logI, logIxB, logR);
-
-    cv::normalize(logR, img, 0, 127
-                  , NORM_MINMAX, CV_8U);
-//    cv::normalize(logR, logR, 0, 1, NORM_MINMAX, CV_64F);
-//    convertScaleAbs(logR, img);
-}
 
